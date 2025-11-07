@@ -19,6 +19,11 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: const MainNavigation(),
+      routes: {
+        '/scan': (context) => const ScanPage(),
+        '/home': (context) => const HomePage(),
+        '/profile': (context) => const ProfilePage(),
+      },
     );
   }
 }
