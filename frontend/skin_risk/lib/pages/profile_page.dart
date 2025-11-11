@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -9,21 +10,60 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  // Mock data for now — replace with real API or local storage later
-  List<Map<String, dynamic>> scanHistory = [
-    {
-      'imagePath': 'assets/sample1.jpg',
-      'label': 'melanoma',
-      'confidence': 0.93,
-      'date': '2025-11-04'
-    },
-    {
-      'imagePath': 'assets/sample2.jpg',
-      'label': 'nevus',
-      'confidence': 0.88,
-      'date': '2025-11-02'
-    },
-  ];
+  List<Map<String, dynamic>> scanHistory = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    loadScanHistory();
+  }
+
+  Future<void> loadScanHistory() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
+    try {
+      final response = await Supabase.instance.client
+          .from('scans')
+          .select()
+          .eq('user_id', user.id)
+          .order('created_at', ascending: false);
+
+      setState(() {
+        scanHistory = List<Map<String, dynamic>>.from(response);
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint("Error loading scans: $e");
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> deleteScan(String id) async {
+    try {
+      await Supabase.instance.client.from('scans').delete().eq('id', id);
+      setState(() {
+        scanHistory.removeWhere((scan) => scan['id'] == id);
+      });
+    } catch (e) {
+      debugPrint("Error deleting scan: $e");
+    }
+  }
+
+  Future<void> _logout() async {
+    await Supabase.instance.client.auth.signOut();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You have been logged out.')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,76 +71,79 @@ class _ProfilePageState extends State<ProfilePage> {
       appBar: AppBar(
         title: const Text('Profile & Scan History'),
         backgroundColor: Theme.of(context).colorScheme.primary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            tooltip: 'Logout',
+            onPressed: _logout,
+          ),
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            const Text(
-              "Previous Scans",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: scanHistory.isEmpty
-                  ? const Center(
-                      child: Text(
-                        "No scans yet. Try scanning a skin image first!",
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: scanHistory.length,
-                      itemBuilder: (context, index) {
-                        final scan = scanHistory[index];
-                        return Card(
-                          elevation: 4,
-                          margin: const EdgeInsets.symmetric(vertical: 8),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          child: ListTile(
-                            leading: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.file(
-                                File(scan['imagePath']),
-                                width: 60,
-                                height: 60,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Image.asset(
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : scanHistory.isEmpty
+              ? const Center(
+                  child: Text(
+                    "No scans yet. Try scanning a skin image first!",
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                )
+              : Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: ListView.builder(
+                    itemCount: scanHistory.length,
+                    itemBuilder: (context, index) {
+                      final scan = scanHistory[index];
+                      return Card(
+                        elevation: 4,
+                        margin: const EdgeInsets.symmetric(vertical: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ListTile(
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: scan['image_url'] != null
+                                ? Image.network(
+                                    scan['image_url'],
+                                    width: 60,
+                                    height: 60,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            Image.asset(
+                                      'assets/placeholder.png',
+                                      width: 60,
+                                      height: 60,
+                                    ),
+                                  )
+                                : Image.asset(
                                     'assets/placeholder.png',
                                     width: 60,
                                     height: 60,
-                                  );
-                                },
-                              ),
-                            ),
-                            title: Text(
-                              scan['label'].toString().toUpperCase(),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            subtitle: Text(
-                              "Confidence: ${(scan['confidence'] * 100).toStringAsFixed(1)}%\nDate: ${scan['date']}",
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () {
-                                setState(() {
-                                  scanHistory.removeAt(index);
-                                });
-                              },
+                                  ),
+                          ),
+                          title: Text(
+                            scan['predicted_label']
+                                    ?.toString()
+                                    .toUpperCase() ??
+                                'UNKNOWN',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
+                          subtitle: Text(
+                            "Confidence: ${(scan['confidence'] * 100).toStringAsFixed(1)}%\nDate: ${scan['created_at'] ?? 'N/A'}",
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => deleteScan(scan['id']),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
     );
   }
 }

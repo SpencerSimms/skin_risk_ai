@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:convert';
 
 class ScanPage extends StatefulWidget {
@@ -81,6 +82,30 @@ class _ScanPageState extends State<ScanPage> {
     } else {
       throw Exception('Failed to get prediction: ${response.statusCode}');
     }
+  }
+
+  Future<void> uploadScan(File imageFile, String label, double confidence) async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+  
+    final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+  
+    // Upload image to Supabase storage
+    final storageResponse = await Supabase.instance.client.storage
+        .from('scans')
+        .upload(fileName, imageFile);
+  
+    final imageUrl = Supabase.instance.client.storage
+        .from('scans')
+        .getPublicUrl(fileName);
+  
+    // Save scan result to database
+    await Supabase.instance.client.from('scans').insert({
+      'user_id': user.id,
+      'image_url': imageUrl,
+      'predicted_label': label,
+      'confidence': confidence,
+    });
   }
 
   @override
