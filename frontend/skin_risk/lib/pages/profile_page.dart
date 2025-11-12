@@ -45,9 +45,30 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> deleteScan(String id) async {
+  Future<void> deleteScan(String id, String fileName) async {
     try {
-      await Supabase.instance.client.from('scans').delete().eq('id', id);
+      final supabase = Supabase.instance.client;
+      final user = supabase.auth.currentUser;
+  
+      if (user == null) {
+        debugPrint("No logged-in user found.");
+        return;
+      }
+  
+      // 1. Delete from storage bucket
+      final storageResponse = await supabase.storage.from('scans').remove([fileName]);
+  
+      if (storageResponse.isEmpty) {
+        debugPrint("Warning: File $fileName was not found in bucket.");
+      } else {
+        debugPrint("File $fileName deleted from bucket.");
+      }
+  
+      // 2. Delete row from table
+      await supabase.from('scans').delete().eq('id', id);
+      debugPrint("Row deleted successfully.");
+  
+      // 3. Update local state
       setState(() {
         scanHistory.removeWhere((scan) => scan['id'] == id);
       });
@@ -94,6 +115,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     itemCount: scanHistory.length,
                     itemBuilder: (context, index) {
                       final scan = scanHistory[index];
+                      final fileName = scan['file_name'];
+                      final id = scan['id'];
+
                       return Card(
                         elevation: 4,
                         margin: const EdgeInsets.symmetric(vertical: 8),
@@ -124,9 +148,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                   ),
                           ),
                           title: Text(
-                            scan['predicted_label']
-                                    ?.toString()
-                                    .toUpperCase() ??
+                            scan['prediction']?.toString().toUpperCase() ??
                                 'UNKNOWN',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
@@ -137,7 +159,14 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                           trailing: IconButton(
                             icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () => deleteScan(scan['id']),
+                            onPressed: () async {
+                              if (fileName != null && fileName.isNotEmpty) {
+                                await deleteScan(id, fileName);
+                              } else {
+                                debugPrint(
+                                    "No file name found for this scan.");
+                              }
+                            },
                           ),
                         ),
                       );
